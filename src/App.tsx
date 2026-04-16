@@ -49,12 +49,14 @@ function score(prompt: string, terms: string[]): number {
   return terms.reduce((sum, term) => sum + (text.includes(term) ? 1 : 0), 0)
 }
 
-function highestScore(scores: Record<Exclude<ModelName, 'image' | 'video'>, number>): Exclude<ModelName, 'image' | 'video'> {
+function getModelWithHighestScore(
+  scores: Record<Exclude<ModelName, 'image' | 'video'>, number>,
+): Exclude<ModelName, 'image' | 'video'> {
   return Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0] as Exclude<ModelName, 'image' | 'video'>
 }
 
 function agentSelect(prompt: string): Exclude<ModelName, 'image' | 'video'> {
-  return highestScore({
+  return getModelWithHighestScore({
     claude: score(prompt, keywords.coding),
     gemini: score(prompt, keywords.writing),
     groq: score(prompt, keywords.realtime),
@@ -199,6 +201,18 @@ function badgeForModel(model: ModelName): string {
       return '🎬 Pollinations/Replicate — Video'
     default:
       return '⚡ GPT — General'
+  }
+}
+
+function sanitizeMediaUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url, window.location.origin)
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString()
+    }
+    return null
+  } catch {
+    return null
   }
 }
 
@@ -381,7 +395,8 @@ function App() {
     const userMessage: ChatMessage = { role: 'user', content: trimmedPrompt }
     setMessages((previous) => [...previous, userMessage])
 
-    const contextPrompt = `Conversation:\n${conversationHistory.map((m) => `${m.role}: ${m.content}`).join('\n')}\n\nUser: ${fullPrompt}\n`
+    const recentHistory = conversationHistory.slice(-20)
+    const contextPrompt = `Conversation:\n${recentHistory.map((m) => `${m.role}: ${m.content}`).join('\n')}\n\nUser: ${fullPrompt}\n`
 
     try {
       const response = await callModel(selectedModel, contextPrompt)
@@ -466,16 +481,24 @@ function App() {
                   {message.model && <span>{badgeForModel(message.model)}</span>}
                 </div>
                 {message.model === 'image' && message.role === 'assistant' ? (
-                  <img src={message.content} alt="Generated" className="max-h-80 rounded-lg" />
+                  sanitizeMediaUrl(message.content) ? (
+                    <img src={sanitizeMediaUrl(message.content) ?? ''} alt="Generated" className="max-h-80 rounded-lg" />
+                  ) : (
+                    <p>Invalid image URL received.</p>
+                  )
                 ) : message.model === 'video' && message.role === 'assistant' ? (
-                  <a
-                    className="text-indigo-300 underline"
-                    href={message.content}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Open generated video
-                  </a>
+                  sanitizeMediaUrl(message.content) ? (
+                    <a
+                      className="text-indigo-300 underline"
+                      href={sanitizeMediaUrl(message.content) ?? '#'}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open generated video
+                    </a>
+                  ) : (
+                    <p>{message.content}</p>
+                  )
                 ) : (
                   <p className="whitespace-pre-wrap">{message.content}</p>
                 )}
